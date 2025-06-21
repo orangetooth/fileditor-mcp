@@ -1,0 +1,27 @@
+{
+    "name": "fileditor-mcp",
+    "version": "1.0.0",
+    "description": "MCP server for file operations",
+    "main": "src/index.js",
+    "type": "module",
+    "scripts": {
+        "start": "node src/index.js",
+        "dev": "node --watch src/index.js",
+        "test": "node test/runAllTests.js"
+    },
+    "keywords": [
+        "mcp",
+        "file-operations",
+        "server"
+    ],
+    "author": "",
+    "license": "MIT",
+    "dependencies": {
+        "@modelcontextprotocol/sdk": "^0.5.0",
+        "path-is-inside": "^1.0.2"
+    },
+    "engines": {
+        "node": ">=18"
+    },
+    "packageManager": "pnpm@10.12.1+sha512.f0dda8580f0ee9481c5c79a1d927b9164f2c478e90992ad268bbb2465a736984391d6333d2c327913578b2804af33474ca554ba29c04a8b13060a717675ae3ac"
+}
