@@ -248,9 +248,7 @@ describe('InsertContentHandler', () => {
                 () => InsertContentHandler.handle(args),
                 (error) => error.message.includes('must match file count')
             );
-        });
-
-        it('should throw an error if the content array lengths do not match', async () => {
+        }); it('should throw an error if the content array lengths do not match', async () => {
             const args = {
                 path: [testFile1, testFile2],
                 line: [1, 2],
@@ -259,7 +257,7 @@ describe('InsertContentHandler', () => {
 
             await assert.rejects(
                 () => InsertContentHandler.handle(args),
-                (error) => error.message.includes('must match file count')
+                (error) => error.message.includes("doesn't match content count")
             );
         });
 

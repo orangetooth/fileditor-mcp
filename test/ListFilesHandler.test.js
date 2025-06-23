@@ -72,9 +72,7 @@ describe('ListFilesHandler', () => {
             // Should not include files from subdirectories
             assert.ok(!text.includes('subfile1.txt'));
             assert.ok(!text.includes('subfile2.md'));
-        });
-
-        it('should handle empty directories', async () => {
+        }); it('should handle empty directories', async () => {
             const emptyDir = join(testDir, 'empty');
             await fs.mkdir(emptyDir);
 
@@ -84,7 +82,7 @@ describe('ListFilesHandler', () => {
 
             assert.strictEqual(result.content[0].type, 'text');
             const text = result.content[0].text;
-            assert.strictEqual(text.trim(), '');
+            assert.strictEqual(text.trim(), 'No files found matching the specified criteria.');
 
             await fs.rmdir(emptyDir);
         });

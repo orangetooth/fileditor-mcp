@@ -29,110 +29,47 @@ export class SearchAndReplaceHandler {
 
             // Read file content
             const content = await FileUtils.readFile(path);
-            const lines = content.split('\n');            // Determine search range
+            const lines = content.split('\n');
+
+            // Validate line range
+            FileUtils.validateLineRange({
+                start_line,
+                end_line,
+                totalLines: lines.length
+            });
+
+            // Determine search range
             const startIdx = start_line !== null ? Math.max(0, start_line - 1) : 0;
-            const endIdx = end_line !== null ? Math.min(lines.length, end_line) : lines.length;            // Validate search string
+            const endIdx = end_line !== null ? Math.min(lines.length, end_line) : lines.length;
+
+            // Validate search string
             if (!search) {
                 // Empty search string, do not perform any replacement
-                let message = `Successfully replaced 0 occurrence(s) in ${path}`;
-                if (start_line || end_line) {
-                    const rangeDesc = start_line && end_line
-                        ? `lines ${start_line}-${end_line}`
-                        : start_line
-                            ? `from line ${start_line}`
-                            : `up to line ${end_line}`;
-                    message += ` (${rangeDesc})`;
-                }
+                const message = SearchAndReplaceHandler._buildResultMessage(path, 0, start_line, end_line, use_regex, ignore_case);
                 return FileUtils.createResponse(message);
-            }
-            if (start_line !== null && start_line < 1) {
-                throw new Error(`Invalid start_line: ${start_line}. Line numbers start from 1.`);
-            }
-            if (end_line !== null && end_line < 1) {
-                throw new Error(`Invalid end_line: ${end_line}. Line numbers start from 1.`);
-            } if (start_line !== null && end_line !== null && start_line > end_line) {
-                throw new Error(`start_line (${start_line}) cannot be greater than end_line (${end_line})`);
-            }
-            if (start_line !== null && start_line > lines.length) {
-                throw new Error(`start_line (${start_line}) exceeds file length (${lines.length} lines)`);
             }
 
             // Perform search and replace
-            let replacementCount = 0;
-            const searchLines = lines.slice(startIdx, endIdx);
-            const beforeLines = lines.slice(0, startIdx);
-            const afterLines = lines.slice(endIdx);
-
-            const processedLines = searchLines.map(line => {
-                let newLine;
-
-                if (use_regex) {
-                    try {
-                        // Build regex flags
-                        let flags = 'g';
-                        if (ignore_case) {
-                            flags += 'i';
-                        }
-
-                        const regex = new RegExp(search, flags);
-                        const matches = line.match(regex);
-                        if (matches) {
-                            replacementCount += matches.length;
-                        }
-                        newLine = line.replace(regex, replace);
-                    } catch (error) {
-                        throw new Error(`Invalid regular expression: ${search}. ${error.message}`);
-                    }
-                } else {
-                    // Simple string replacement
-                    if (ignore_case) {
-                        // Case-insensitive string replacement
-                        const searchLower = search.toLowerCase();
-                        const lineLower = line.toLowerCase();
-
-                        // Count occurrences
-                        const occurrences = SearchAndReplaceHandler.countOccurrencesCaseInsensitive(line, search);
-                        replacementCount += occurrences;
-
-                        // Perform replacement
-                        newLine = SearchAndReplaceHandler.replaceAllCaseInsensitive(line, search, replace);
-                    } else {
-                        // Case-sensitive string replacement
-                        const occurrences = SearchAndReplaceHandler.countOccurrences(line, search);
-                        replacementCount += occurrences;
-                        newLine = line.split(search).join(replace);
-                    }
-                }
-
-                return newLine;
-            });
+            const { processedLines, replacementCount } = SearchAndReplaceHandler._performSearchAndReplace(
+                lines.slice(startIdx, endIdx),
+                search,
+                replace,
+                use_regex,
+                ignore_case
+            );
 
             // Rebuild file content
-            const newContent = [...beforeLines, ...processedLines, ...afterLines].join('\n');
+            const newContent = [
+                ...lines.slice(0, startIdx),
+                ...processedLines,
+                ...lines.slice(endIdx)
+            ].join('\n');
 
             // Write back to file
             await FileUtils.writeFile(path, newContent);
 
             // Build response message
-            let message = `Successfully replaced ${replacementCount} occurrence(s) in ${path}`;
-
-            if (start_line || end_line) {
-                const rangeDesc = start_line && end_line
-                    ? `lines ${start_line}-${end_line}`
-                    : start_line
-                        ? `from line ${start_line}`
-                        : `up to line ${end_line}`;
-                message += ` (${rangeDesc})`;
-            }
-
-            if (use_regex) {
-                message += ` using regex pattern`;
-            }
-
-            if (ignore_case) {
-                message += ` (case-insensitive)`;
-            }
-
+            const message = SearchAndReplaceHandler._buildResultMessage(path, replacementCount, start_line, end_line, use_regex, ignore_case);
             return FileUtils.createResponse(message);
 
         } catch (error) {
@@ -141,58 +78,140 @@ export class SearchAndReplaceHandler {
     }
 
     /**
+     * Perform search and replace operation
+     * @param {string[]} lines - Lines to process
+     * @param {string} search - Search pattern
+     * @param {string} replace - Replacement text
+     * @param {boolean} use_regex - Whether to use regex
+     * @param {boolean} ignore_case - Whether to ignore case
+     * @returns {Object} Processing result
+     */
+    static _performSearchAndReplace(lines, search, replace, use_regex, ignore_case) {
+        let replacementCount = 0;
+
+        const processedLines = lines.map(line => {
+            let newLine;
+
+            if (use_regex) {
+                const { processedLine, count } = SearchAndReplaceHandler._regexReplace(line, search, replace, ignore_case);
+                newLine = processedLine;
+                replacementCount += count;
+            } else {
+                const { processedLine, count } = SearchAndReplaceHandler._stringReplace(line, search, replace, ignore_case);
+                newLine = processedLine;
+                replacementCount += count;
+            }
+
+            return newLine;
+        });
+
+        return { processedLines, replacementCount };
+    }
+
+    /**
+     * Perform regex-based replacement
+     * @param {string} line - Line to process
+     * @param {string} search - Regex pattern
+     * @param {string} replace - Replacement text
+     * @param {boolean} ignore_case - Whether to ignore case
+     * @returns {Object} Result with processed line and count
+     */
+    static _regexReplace(line, search, replace, ignore_case) {
+        try {
+            // Build regex flags
+            let flags = 'g';
+            if (ignore_case) {
+                flags += 'i';
+            }
+
+            const regex = new RegExp(search, flags);
+            const matches = line.match(regex);
+            const count = matches ? matches.length : 0;
+            const processedLine = line.replace(regex, replace);
+
+            return { processedLine, count };
+        } catch (error) {
+            throw new Error(`Invalid regular expression: ${search}. ${error.message}`);
+        }
+    }
+
+    /**
+     * Perform string-based replacement
+     * @param {string} line - Line to process
+     * @param {string} search - Search string
+     * @param {string} replace - Replacement text
+     * @param {boolean} ignore_case - Whether to ignore case
+     * @returns {Object} Result with processed line and count
+     */
+    static _stringReplace(line, search, replace, ignore_case) {
+        if (ignore_case) {
+            // Use regex for case-insensitive string replacement
+            const escapedSearch = SearchAndReplaceHandler._escapeRegex(search);
+            const regex = new RegExp(escapedSearch, 'gi');
+            const matches = line.match(regex);
+            const count = matches ? matches.length : 0;
+            const processedLine = line.replace(regex, replace);
+
+            return { processedLine, count };
+        } else {
+            // Case-sensitive string replacement
+            const count = SearchAndReplaceHandler._countOccurrences(line, search);
+            const processedLine = line.split(search).join(replace);
+
+            return { processedLine, count };
+        }
+    }
+
+    /**
+     * Escape special regex characters in a string
+     * @param {string} string - String to escape
+     * @returns {string} Escaped string
+     */
+    static _escapeRegex(string) {
+        return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    /**
      * Count occurrences of a substring in a string
      * @param {string} text - Main string
      * @param {string} searchText - Substring to search for
      * @returns {number} Number of occurrences
      */
-    static countOccurrences(text, searchText) {
+    static _countOccurrences(text, searchText) {
         if (!searchText) return 0;
         return text.split(searchText).length - 1;
     }
 
     /**
-     * Count occurrences of a substring in a string (case-insensitive)
-     * @param {string} text - Main string
-     * @param {string} searchText - Substring to search for
-     * @returns {number} Number of occurrences
+     * Build result message
+     * @param {string} path - File path
+     * @param {number} replacementCount - Number of replacements
+     * @param {number|null} start_line - Start line
+     * @param {number|null} end_line - End line  
+     * @param {boolean} use_regex - Whether regex was used
+     * @param {boolean} ignore_case - Whether case was ignored
+     * @returns {string} Result message
      */
-    static countOccurrencesCaseInsensitive(text, searchText) {
-        if (!searchText) return 0;
-        const textLower = text.toLowerCase();
-        const searchLower = searchText.toLowerCase();
-        return textLower.split(searchLower).length - 1;
-    }    /**
-     * Case-insensitive string replacement
-     * @param {string} text - Main string
-     * @param {string} searchText - Substring to search for
-     * @param {string} replaceText - Replacement text
-     * @returns {string} Replaced string
-     */
-    static replaceAllCaseInsensitive(text, searchText, replaceText) {
-        if (!searchText) return text;
+    static _buildResultMessage(path, replacementCount, start_line, end_line, use_regex, ignore_case) {
+        let message = `Successfully replaced ${replacementCount} occurrence(s) in ${path}`;
 
-        const searchLower = searchText.toLowerCase();
-        const textLower = text.toLowerCase();
-
-        let result = '';
-        let lastIndex = 0;
-
-        let index = textLower.indexOf(searchLower);
-        while (index !== -1) {
-            // Add part before match
-            result += text.slice(lastIndex, index);
-            // Add replacement text
-            result += replaceText;
-            // Update position
-            lastIndex = index + searchText.length;
-            // Find next match
-            index = textLower.indexOf(searchLower, lastIndex);
+        if (start_line || end_line) {
+            const rangeDesc = start_line && end_line
+                ? `lines ${start_line}-${end_line}`
+                : start_line
+                    ? `from line ${start_line}`
+                    : `up to line ${end_line}`;
+            message += ` (${rangeDesc})`;
         }
 
-        // Add remaining part
-        result += text.slice(lastIndex);
+        if (use_regex) {
+            message += ` using regex pattern`;
+        }
 
-        return result;
+        if (ignore_case) {
+            message += ` (case-insensitive)`;
+        }
+
+        return message;
     }
 }

@@ -1,6 +1,3 @@
-import fs from 'fs/promises';
-import { resolve, join } from 'path';
-import { existsSync } from 'fs';
 import { FileUtils } from '../utils/fileUtils.js';
 
 /**
@@ -14,52 +11,44 @@ export class ListFilesHandler {
      * @returns {Promise<Object>} Response result
      */
     static async handle(args) {
-        const { path, recursive = false } = args;
+        const {
+            path,
+            recursive = false,
+            show_hidden = false,
+            git_filter = 'all'
+        } = args;
 
         try {
-            const fullPath = FileUtils.getSecurePath(path);
+            const result = await FileUtils.readDirectoryAdvanced(path, {
+                recursive,
+                show_hidden,
+                git_filter
+            });            // Build informative response message
+            let message = result.join('\n');
 
-            if (!existsSync(fullPath)) {
-                throw new Error(`Directory not found: ${path}`);
-            }
-
-            const result = [];
-
-            if (recursive) {
-                await ListFilesHandler.listFilesRecursive(fullPath, result, '');
+            if (result.length === 0) {
+                message = 'No files found matching the specified criteria.';
             } else {
-                const items = await fs.readdir(fullPath, { withFileTypes: true });
-                for (const item of items) {
-                    const type = item.isDirectory() ? 'directory' : 'file';
-                    result.push(`${type}: ${item.name}`);
+                // Add summary information
+                const summary = [];
+                if (!show_hidden) {
+                    summary.push('hidden files excluded');
+                }
+                if (git_filter !== 'all') {
+                    summary.push(`showing only ${git_filter} files`);
+                }
+                if (recursive) {
+                    summary.push('recursive listing');
+                }
+
+                if (summary.length > 0) {
+                    message += `\n\n--- Listing options: ${summary.join(', ')} ---`;
                 }
             }
 
-            return FileUtils.createResponse(result.join('\n'));
+            return FileUtils.createResponse(message);
         } catch (error) {
             throw new Error(`Failed to list files: ${error.message}`);
-        }
-    }
-
-    /**
-     * Recursively list files
-     * @param {string} dirPath - Directory path
-     * @param {string[]} result - Result array
-     * @param {string} prefix - Path prefix
-     */
-    static async listFilesRecursive(dirPath, result, prefix) {
-        const items = await fs.readdir(dirPath, { withFileTypes: true });
-
-        for (const item of items) {
-            const itemPath = join(dirPath, item.name);
-            const displayPath = prefix ? `${prefix}/${item.name}` : item.name;
-
-            if (item.isDirectory()) {
-                result.push(`directory: ${displayPath}`);
-                await ListFilesHandler.listFilesRecursive(itemPath, result, displayPath);
-            } else {
-                result.push(`file: ${displayPath}`);
-            }
         }
     }
 }

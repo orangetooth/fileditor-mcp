@@ -14,37 +14,26 @@ export class WriteFileHandler {
         const { path, content, line_count } = args;
 
         try {
-            // Handle single file or multiple files
-            const paths = Array.isArray(path) ? path : [path];
-            const contents = Array.isArray(content) ? content : [content];
-            const lineCounts = Array.isArray(line_count) ? line_count : [line_count];
-
-            // Validate array length consistency
-            if (Array.isArray(path)) {
-                if (Array.isArray(content) && contents.length !== paths.length) {
-                    throw new Error(`Path count (${paths.length}) doesn't match content count (${contents.length})`);
-                }
-                if (Array.isArray(line_count) && lineCounts.length !== paths.length) {
-                    throw new Error(`Path count (${paths.length}) doesn't match line_count array length (${lineCounts.length})`);
-                }
-            }
+            // Use FileUtils to normalize parameters
+            const { paths, contents, lineCounts, fileCount } = FileUtils.normalizeMultiFileArgs(args);
 
             const results = [];
             const writeOperations = [];
+            const warnings = [];
 
             // Perform all write operations
-            for (let i = 0; i < paths.length; i++) {
+            for (let i = 0; i < fileCount; i++) {
                 const filePath = paths[i];
-                const fileContent = Array.isArray(content) ? contents[i] : content;
-                const expectedLines = Array.isArray(line_count) ? lineCounts[i] : line_count;
+                const fileContent = contents[i];
+                const expectedLines = lineCounts[i];
 
                 // Execute write operations in parallel
                 writeOperations.push(
                     FileUtils.writeFile(filePath, fileContent).then(() => {
                         // Validate line count
                         const actualLines = FileUtils.countLines(fileContent);
-                        if (actualLines !== expectedLines) {
-                            console.warn(`Warning: ${filePath} - Expected ${expectedLines} lines, but got ${actualLines} lines`);
+                        if (expectedLines !== null && actualLines !== expectedLines) {
+                            warnings.push(`${filePath} - Expected ${expectedLines} lines, but got ${actualLines} lines`);
                         }
 
                         return {
@@ -87,6 +76,11 @@ export class WriteFileHandler {
                     successResults.map(result =>
                         `  - ${result.path} (${result.actualLines} lines)`
                     ).join('\n');
+            }
+
+            // Add warnings to the message if any
+            if (warnings.length > 0) {
+                message += '\n\nWarnings:\n' + warnings.map(w => `  ⚠️  ${w}`).join('\n');
             }
 
             return FileUtils.createResponse(message);

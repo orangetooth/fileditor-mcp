@@ -14,18 +14,17 @@ export class ApplyDiffHandler {
     static formatContentWithLineNumbers(content, startLine) {
         const lines = content.split('\n');
         return lines.map((line, index) => `${startLine + index} | ${line}`).join('\n');
-    }
-
-    /**
-     * Validate a single diff operation
-     * @param {Object} diff - Diff operation to validate
+    }    /**
+     * Apply or validate a single diff operation
+     * @param {Object} diff - Diff operation
      * @param {Array} lines - File lines
      * @param {number} lineOffset - Current line offset
      * @param {boolean} trim - Whether to trim whitespace when comparing
-     * @returns {Object} Validation result
+     * @param {boolean} dryRun - Whether this is a validation-only run
+     * @returns {Object} Operation result
      */
-    static validateDiff(diff, lines, lineOffset, trim = false) {
-        const { search_content: searchContent, start_line: originalStartLine, originalIndex } = diff;
+    static applySingleDiff(diff, lines, lineOffset, trim = false, dryRun = false) {
+        const { search_content: searchContent, replace_content: replaceContent, start_line: originalStartLine, originalIndex } = diff;
 
         try {
             // Calculate actual start line with offset
@@ -73,12 +72,42 @@ export class ApplyDiffHandler {
                 throw new Error(detailedError);
             }
 
-            return {
-                success: true,
-                actualStartLine,
-                endLine,
-                searchLines
-            };
+            if (dryRun) {
+                // Validation run: just return metadata for offset calculation
+                const replaceLines = replaceContent.split('\n');
+                const lineDiff = replaceLines.length - searchLines.length;
+
+                return {
+                    success: true,
+                    actualStartLine,
+                    endLine,
+                    searchLines,
+                    replaceLines,
+                    lineDiff,
+                    originalIndex
+                };
+            } else {
+                // Actual application: modify the lines array
+                const replaceLines = replaceContent.split('\n');
+
+                // Perform replacement
+                const beforeLines = lines.slice(0, actualStartLine - 1);
+                const afterLines = lines.slice(endLine);
+                const newLines = [...beforeLines, ...replaceLines, ...afterLines];
+
+                // Calculate line diff for offset tracking
+                const lineDiff = replaceLines.length - searchLines.length;
+
+                return {
+                    success: true,
+                    newLines,
+                    lineDiff,
+                    actualStartLine,
+                    searchLines,
+                    replaceLines,
+                    originalIndex
+                };
+            }
         } catch (error) {
             return {
                 success: false,
@@ -141,15 +170,14 @@ export class ApplyDiffHandler {
 
         // Read file content
         const content = await FileUtils.readFile(path);
-        let lines = content.split('\n');
-        if (atomic && diffCount > 1) {
+        let lines = content.split('\n'); if (atomic && diffCount > 1) {
             // Atomic mode: validate all diffs first
             let lineOffset = 0;
             const validationErrors = [];
             let tempLines = [...lines]; // Work with a copy for validation
 
             for (const diff of diffs) {
-                const validation = this.validateDiff(diff, tempLines, lineOffset, trim);
+                const validation = this.applySingleDiff(diff, tempLines, lineOffset, trim, true);
 
                 if (!validation.success) {
                     validationErrors.push({
@@ -161,17 +189,12 @@ export class ApplyDiffHandler {
                     break; // Stop validation on first error
                 } else {
                     // Simulate the replacement to update tempLines and lineOffset
-                    const replaceLines = diff.replace_content.split('\n');
-                    const actualStartLine = diff.start_line + lineOffset;
-                    const endLine = actualStartLine + validation.searchLines.length - 1;
-
-                    const beforeLines = tempLines.slice(0, actualStartLine - 1);
-                    const afterLines = tempLines.slice(endLine);
-                    tempLines = [...beforeLines, ...replaceLines, ...afterLines];
+                    const beforeLines = tempLines.slice(0, validation.actualStartLine - 1);
+                    const afterLines = tempLines.slice(validation.endLine);
+                    tempLines = [...beforeLines, ...validation.replaceLines, ...afterLines];
 
                     // Update line offset for next validation
-                    const lineDiff = replaceLines.length - validation.searchLines.length;
-                    lineOffset += lineDiff;
+                    lineOffset += validation.lineDiff;
                 }
             }
 
@@ -211,50 +234,53 @@ export class ApplyDiffHandler {
         // Track results for each diff
         const results = new Array(diffCount);
         let lineOffset = 0; // Track cumulative line offset
-        let appliedCount = 0;
-
-        // Process each diff in order
+        let appliedCount = 0;        // Process each diff in order
         for (const diff of diffs) {
             const { search_content: searchContent, replace_content: replaceContent, start_line: originalStartLine, originalIndex } = diff;
 
             if (!atomic || diffCount === 1) {
                 // Non-atomic mode or single diff: validate and apply one by one
-                const validation = this.validateDiff(diff, lines, lineOffset, trim);
+                const result = this.applySingleDiff(diff, lines, lineOffset, trim, false);
 
-                if (!validation.success) {
+                if (!result.success) {
                     results[originalIndex] = {
                         index: originalIndex,
                         start_line: originalStartLine,
                         status: "fail",
-                        message: validation.error
+                        message: result.error
                     };
                     continue;
                 }
+
+                // Update lines and offset
+                lines = result.newLines;
+                lineOffset += result.lineDiff;
+                appliedCount++;
+
+                // Record success
+                results[originalIndex] = {
+                    index: originalIndex,
+                    start_line: originalStartLine,
+                    status: "success",
+                    message: `Replaced ${result.searchLines.length} line(s) at line ${originalStartLine}${result.lineDiff !== 0 ? ` (${result.lineDiff > 0 ? 'added' : 'removed'} ${Math.abs(result.lineDiff)} line(s))` : ''}`
+                };
+            } else {
+                // Atomic mode: just apply the diff (validation already done)
+                const result = this.applySingleDiff(diff, lines, lineOffset, trim, false);
+
+                // Update lines and offset
+                lines = result.newLines;
+                lineOffset += result.lineDiff;
+                appliedCount++;
+
+                // Record success
+                results[originalIndex] = {
+                    index: originalIndex,
+                    start_line: originalStartLine,
+                    status: "success",
+                    message: `Replaced ${result.searchLines.length} line(s) at line ${originalStartLine}${result.lineDiff !== 0 ? ` (${result.lineDiff > 0 ? 'added' : 'removed'} ${Math.abs(result.lineDiff)} line(s))` : ''}`
+                };
             }
-
-            // Apply the diff
-            const actualStartLine = originalStartLine + lineOffset;
-            const searchLines = searchContent.split('\n');
-            const replaceLines = replaceContent.split('\n');
-            const endLine = actualStartLine + searchLines.length - 1;
-
-            // Perform replacement
-            const beforeLines = lines.slice(0, actualStartLine - 1);
-            const afterLines = lines.slice(endLine);
-            lines = [...beforeLines, ...replaceLines, ...afterLines];
-
-            // Update line offset for subsequent diffs
-            const lineDiff = replaceLines.length - searchLines.length;
-            lineOffset += lineDiff;
-            appliedCount++;
-
-            // Record success
-            results[originalIndex] = {
-                index: originalIndex,
-                start_line: originalStartLine,
-                status: "success",
-                message: `Replaced ${searchLines.length} line(s) at line ${originalStartLine}${lineDiff !== 0 ? ` (${lineDiff > 0 ? 'added' : 'removed'} ${Math.abs(lineDiff)} line(s))` : ''}`
-            };
         }
 
         // Write back to file

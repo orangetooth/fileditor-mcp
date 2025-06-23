@@ -100,10 +100,9 @@ export const toolDefinitions = [
             },
             required: ["path", "content", "line_count"]
         }
-    },
-    {
+    }, {
         name: "list_files",
-        description: "List the files and subdirectories in the specified directory.",
+        description: "List the files and subdirectories in the specified directory. Supports options to control visibility of hidden files and git-tracked/untracked files.",
         inputSchema: {
             type: "object",
             properties: {
@@ -115,6 +114,17 @@ export const toolDefinitions = [
                     type: "boolean",
                     description: "Whether to recursively list subdirectory contents",
                     default: false
+                },
+                show_hidden: {
+                    type: "boolean",
+                    description: "Whether to show hidden files and directories (files/directories starting with '.')",
+                    default: false
+                },
+                git_filter: {
+                    type: "string",
+                    description: "Filter files based on git status: 'all' (default) shows all files, 'tracked' shows only git-tracked files, 'untracked' shows only non-git-tracked files",
+                    enum: ["all", "tracked", "untracked"],
+                    default: "all"
                 }
             },
             required: ["path"]

@@ -737,7 +737,7 @@ This document describes a set of file operation tools compliant with the Model C
 
 ## 6. `list_files` (List Files)
 
-**Description**: List the files and subdirectories in the specified directory.
+**Description**: List the files and subdirectories in the specified directory. Supports options to control visibility of hidden files and git-tracked/untracked files.
 
 **MCP Call Format**:
 ```json
@@ -745,7 +745,9 @@ This document describes a set of file operation tools compliant with the Model C
   "name": "list_files",
   "arguments": {
     "path": "directory path",
-    "recursive": true/false
+    "recursive": true/false,
+    "show_hidden": true/false,
+    "git_filter": "all|tracked|untracked"
   }
 }
 ```
@@ -755,14 +757,34 @@ This document describes a set of file operation tools compliant with the Model C
 {
   "type": "object",
   "properties": {
-    "path": { "type": "string", "description": "The directory path to list contents of" },
-    "recursive": { "type": "boolean", "description": "Whether to recursively list subdirectory contents", "default": false }
+    "path": {
+      "type": "string",
+      "description": "The directory path to list contents of. The path can be an absolute path or a workspace-relative path."
+    },
+    "recursive": {
+      "type": "boolean",
+      "description": "Whether to recursively list subdirectory contents",
+      "default": false
+    },
+    "show_hidden": {
+      "type": "boolean",
+      "description": "Whether to show hidden files and directories (files/directories starting with '.')",
+      "default": false
+    },
+    "git_filter": {
+      "type": "string",
+      "description": "Filter files based on git status: 'all' (default) shows all files, 'tracked' shows only git-tracked files, 'untracked' shows only non-git-tracked files",
+      "enum": ["all", "tracked", "untracked"],
+      "default": "all"
+    }
   },
   "required": ["path"]
 }
 ```
 
 **Usage Example**:
+
+*Basic usage:*
 ```json
 {
   "name": "list_files",
@@ -803,6 +825,77 @@ This document describes a set of file operation tools compliant with the Model C
     {
       "type": "text",
       "text": "directory: main\ndirectory: main/java\nfile: main/java/App.java\nfile: main/java/Utils.java\ndirectory: main/resources\nfile: main/resources/config.properties\ndirectory: test\nfile: test/AppTest.java"
+    }
+  ]
+}
+```
+
+*Show hidden files:*
+```json
+{
+  "name": "list_files",
+  "arguments": {
+    "path": ".",
+    "show_hidden": true
+  }
+}
+```
+
+**Return Example**:
+```json
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "file: .gitignore\nfile: .gitattributes\ndirectory: .vscode\nfile: package.json\nfile: README.md\ndirectory: src\n\n--- Listing options: recursive listing ---"
+    }
+  ]
+}
+```
+
+*Show only git-tracked files:*
+```json
+{
+  "name": "list_files",
+  "arguments": {
+    "path": "src",
+    "recursive": true,
+    "git_filter": "tracked"
+  }
+}
+```
+
+**Return Example**:
+```json
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "directory: handlers\nfile: handlers/applyDiff.js\nfile: handlers/insertContent.js\nfile: handlers/listFiles.js\nfile: index.js\nfile: server.js\n\n--- Listing options: showing only tracked files, recursive listing ---"
+    }
+  ]
+}
+```
+
+*Show only untracked files:*
+```json
+{
+  "name": "list_files",
+  "arguments": {
+    "path": ".",
+    "git_filter": "untracked",
+    "show_hidden": true
+  }
+}
+```
+
+**Return Example**:
+```json
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "file: temp.log\nfile: debug.txt\ndirectory: tmp\n\n--- Listing options: showing only untracked files ---"
     }
   ]
 }

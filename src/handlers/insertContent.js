@@ -1,5 +1,3 @@
-import fs from 'fs/promises';
-import { resolve } from 'path';
 import { FileUtils } from '../utils/fileUtils.js';
 
 /**
@@ -19,7 +17,7 @@ export class InsertContentHandler {
             // Check if single file or multiple files
             if (Array.isArray(path)) {
                 // Insert into multiple files
-                return await InsertContentHandler.insertContentMultipleFiles(path, line, content);
+                return await InsertContentHandler.insertContentMultipleFiles(args);
             } else {
                 // Insert into single file
                 return await InsertContentHandler.insertContentSingleFile(path, line, content);
@@ -37,8 +35,6 @@ export class InsertContentHandler {
      * @returns {Promise<Object>} Response result
      */
     static async insertContentSingleFile(filePath, line, content) {
-        const fullPath = FileUtils.getSecurePath(filePath);
-
         // Check if file exists
         if (!FileUtils.fileExists(filePath)) {
             throw new Error(`File not found: ${filePath}`);
@@ -78,7 +74,7 @@ export class InsertContentHandler {
         lines.splice(insertPosition, 0, ...newLines);
 
         // Write back to file
-        await fs.writeFile(fullPath, lines.join('\n'), 'utf8');
+        await FileUtils.writeFile(filePath, lines.join('\n'));
 
         // Build response message
         let positionDesc;
@@ -96,61 +92,39 @@ export class InsertContentHandler {
 
     /**
      * Insert content into multiple files
-     * @param {string[]} filePaths - Array of file paths
-     * @param {number|number[]} lines - Line number or array of line numbers
-     * @param {string|string[]} contents - Content or array of contents
+     * @param {Object} args - Original arguments object
      * @returns {Promise<Object>} Response result
      */
-    static async insertContentMultipleFiles(filePaths, lines, contents) {
+    static async insertContentMultipleFiles(args) {
         const results = [];
         const errors = [];
 
-        // Parameter validation
-        const fileCount = filePaths.length;
+        try {
+            // Use FileUtils to normalize parameters
+            const { paths, contents, lines: lineArray, fileCount } = FileUtils.normalizeMultiFileArgs(args);
 
-        // Handle line parameter (can be a single number or array)
-        let lineArray;
-        if (Array.isArray(lines)) {
-            if (lines.length !== fileCount) {
-                throw new Error(`Line array length (${lines.length}) must match file count (${fileCount})`);
+            // Perform insert operation for each file
+            for (let i = 0; i < fileCount; i++) {
+                const filePath = paths[i];
+                const line = lineArray[i];
+                const content = contents[i];
+
+                try {
+                    const result = await InsertContentHandler.insertContentSingleFile(filePath, line, content);
+                    results.push({
+                        file: filePath,
+                        success: true,
+                        message: result.content[0].text
+                    });
+                } catch (error) {
+                    errors.push({
+                        file: filePath,
+                        error: error.message
+                    });
+                }
             }
-            lineArray = lines;
-        } else {
-            // If single number, apply to all files
-            lineArray = new Array(fileCount).fill(lines);
-        }
-
-        // Handle content parameter (can be a single string or array)
-        let contentArray;
-        if (Array.isArray(contents)) {
-            if (contents.length !== fileCount) {
-                throw new Error(`Content array length (${contents.length}) must match file count (${fileCount})`);
-            }
-            contentArray = contents;
-        } else {
-            // If single string, apply to all files
-            contentArray = new Array(fileCount).fill(contents);
-        }
-
-        // Perform insert operation for each file
-        for (let i = 0; i < fileCount; i++) {
-            const filePath = filePaths[i];
-            const line = lineArray[i];
-            const content = contentArray[i];
-
-            try {
-                const result = await InsertContentHandler.insertContentSingleFile(filePath, line, content);
-                results.push({
-                    file: filePath,
-                    success: true,
-                    message: result.content[0].text
-                });
-            } catch (error) {
-                errors.push({
-                    file: filePath,
-                    error: error.message
-                });
-            }
+        } catch (paramError) {
+            throw new Error(`Parameter validation failed: ${paramError.message}`);
         }
 
         // Build return message

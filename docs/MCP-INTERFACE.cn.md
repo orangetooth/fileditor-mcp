@@ -825,7 +825,7 @@
 
 ## 6. `list_files` (列出文件)
 
-**描述**: 列出指定目录中的文件和子目录
+**描述**: 列出指定目录中的文件和子目录。支持控制隐藏文件显示和git跟踪/未跟踪文件过滤的选项。
 
 **MCP 调用格式**:
 ```json
@@ -833,7 +833,9 @@
   "name": "list_files",
   "arguments": {
     "path": "目录路径",
-    "recursive": true/false
+    "recursive": true/false,
+    "show_hidden": true/false,
+    "git_filter": "all|tracked|untracked"
   }
 }
 ```
@@ -845,12 +847,23 @@
   "properties": {
     "path": {
       "type": "string",
-      "description": "要列出内容的目录路径"
+      "description": "要列出内容的目录路径。路径可以是绝对路径或工作区相对路径。"
     },
     "recursive": {
       "type": "boolean",
       "description": "是否递归列出子目录内容",
       "default": false
+    },
+    "show_hidden": {
+      "type": "boolean",
+      "description": "是否显示隐藏文件和目录（以 '.' 开头的文件/目录）",
+      "default": false
+    },
+    "git_filter": {
+      "type": "string",
+      "description": "基于git状态过滤文件：'all'（默认）显示所有文件，'tracked' 仅显示git跟踪的文件，'untracked' 仅显示未被git跟踪的文件",
+      "enum": ["all", "tracked", "untracked"],
+      "default": "all"
     }
   },
   "required": ["path"]
@@ -858,6 +871,8 @@
 ```
 
 **使用示例**:
+
+*基本用法:*
 ```json
 {
   "name": "list_files",
@@ -898,6 +913,77 @@
     {
       "type": "text",
       "text": "directory: main\ndirectory: main/java\nfile: main/java/App.java\nfile: main/java/Utils.java\ndirectory: main/resources\nfile: main/resources/config.properties\ndirectory: test\nfile: test/AppTest.java"
+    }
+  ]
+}
+```
+
+*显示隐藏文件:*
+```json
+{
+  "name": "list_files",
+  "arguments": {
+    "path": ".",
+    "show_hidden": true
+  }
+}
+```
+
+**返回值示例**:
+```json
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "file: .gitignore\nfile: .gitattributes\ndirectory: .vscode\nfile: package.json\nfile: README.md\ndirectory: src\n\n--- Listing options: recursive listing ---"
+    }
+  ]
+}
+```
+
+*仅显示git跟踪的文件:*
+```json
+{
+  "name": "list_files",
+  "arguments": {
+    "path": "src",
+    "recursive": true,
+    "git_filter": "tracked"
+  }
+}
+```
+
+**返回值示例**:
+```json
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "directory: handlers\nfile: handlers/applyDiff.js\nfile: handlers/insertContent.js\nfile: handlers/listFiles.js\nfile: index.js\nfile: server.js\n\n--- Listing options: showing only tracked files, recursive listing ---"
+    }
+  ]
+}
+```
+
+*仅显示未跟踪的文件:*
+```json
+{
+  "name": "list_files",
+  "arguments": {
+    "path": ".",
+    "git_filter": "untracked",
+    "show_hidden": true
+  }
+}
+```
+
+**返回值示例**:
+```json
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "file: temp.log\nfile: debug.txt\ndirectory: tmp\n\n--- Listing options: showing only untracked files ---"
     }
   ]
 }
